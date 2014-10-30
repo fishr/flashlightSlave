@@ -6,6 +6,9 @@ int CE=8;
 int IRQ=9;
 int CSN=10;
 
+byte addrRequest = 128;
+
+byte newAddr = 0x06;
 
 byte tester = 0;
 //temp start addr is 0xE7E706, need to set tx_addr and rx_addr_0 to this
@@ -28,19 +31,27 @@ void setup(){
   delay(5);
   digitalWrite(CE, HIGH);
   delay(5);
+  Serial.println("that felt good!");
+  transmitSpin(addrRequest);
+  Serial.println("i did it!");
+  setRX(0x06);
+  Serial.println("listening");
+  spin();
+  Serial.println("got it");
+  newAddr = verifyData()+1;
+  clearStatus();
+  setTX(newAddr);
+  Serial.print("my new address is ");
+  Serial.println(readReg(0x10));
+  delay(5);
 }
 
 void loop(){
-  
-  //if(Serial.available()>0){
-    //incoming = Serial.read();
-  //}
-  //Serial.println(readReg(0x07));
-  //Serial.println(readReg(0x00));
-  //Serial.println(readReg(0x1D));
-      
+  if(tester==128){
+    tester=129;
+  }
   transmit(tester);
-  while(digitalRead(IRQ)==HIGH){}
+  spin();
   byte statusReg = readReg(0x07);
   writeReg(0x07, 0b01110000);
   flushBuffers();
@@ -64,6 +75,61 @@ void nrfSlavOn(){
   delay(5);
 }
 
+void transmitSpin(byte data){
+  byte flag=0;
+  while(!flag){
+    transmit(data);  
+    spin();
+    if(0b00100000&readReg(0x07)){
+      flag=1;
+    }else{
+      Serial.println("timeout");
+    }
+    clearStatus();
+  }
+}
+
+byte getSender(){
+  return(readReg(0x07)>>1)&0b00000111;
+}
+
+void setTX(byte addr){
+  digitalWrite(CE, LOW);
+  writeAddr(0x10, addr); //set transmit address
+  writeAddr(0x0A, addr);  //set rx address for ack
+  writeReg(0x00,0b00001110); //powerup
+  flushBuffers();
+  digitalWrite(CE, HIGH);
+  delayMicroseconds(200);
+}
+
+void setRX(byte addr){
+  digitalWrite(CE, LOW);
+  writeAddr(0x0A, addr); //first receive addr
+  writeReg(0x00,0b00001111); //powerup
+  flushBuffers();
+  digitalWrite(CE, HIGH);
+  delayMicroseconds(200);
+}
+
+void spin(){
+  while(digitalRead(IRQ)==HIGH){}
+}
+
+int verifyData(){  //clears status and returns byte if good, else returns -1 (without clearing)
+  byte statreg = readReg(0x07);
+  if(0b01000000&statreg){
+    clearStatus();
+    return readrf();
+  }else{
+    return -1;
+  }
+}
+
+void clearStatus(){
+    writeReg(0x07, 0b01110000);
+}
+
 byte writeAddr(byte addr, byte index){
   digitalWrite(CSN, LOW);
   NOP;
@@ -71,10 +137,12 @@ byte writeAddr(byte addr, byte index){
   NOP;
   SPI.transfer(index);
   NOP;
-  SPI.transfer(0xE7);
-  NOP;
-  SPI.transfer(0xE7);
-  NOP;
+  if(addr<0x0C){
+    SPI.transfer(0xE7);
+    NOP;
+    SPI.transfer(0xE7);
+    NOP;
+  }
   digitalWrite(CSN, HIGH);
   NOP;
   return incoming;
@@ -116,6 +184,19 @@ byte transmit(byte data){
   SPI.transfer(data);
   NOP;
   digitalWrite(CSN, HIGH);
+}
+
+byte readrf(){
+  digitalWrite(CSN, LOW);
+  NOP;
+  SPI.transfer(0b01100001);
+  NOP;
+  byte data = SPI.transfer(0xFF);
+  NOP;
+  digitalWrite(CSN, HIGH);
+  NOP;
+  writeReg(0x07, 0b01110000);
+  return data;
 }
 
 void flushBuffers(){
