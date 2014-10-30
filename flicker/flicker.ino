@@ -75,7 +75,12 @@ void loop()
     if (dipFrame2 < 0 && random(256) < 1)
       dipFrame2 = 0;
   
-    int brightness = battery;
+    int brightness = 0;
+    if (battery > 45)
+      brightness = (battery + 255) / 2;
+    else
+      brightness = battery*3;
+    
     if (dipFrame1 >= 0)
     {
       brightness *= dipTable1[dipFrame1];
